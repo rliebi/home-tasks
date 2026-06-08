@@ -1428,12 +1428,17 @@ async def _save_image_to_public_media(hass, connection, image_url: str, filename
 
         session = async_get_clientsession(hass, verify_ssl=False)
 
-        # Resolve media-source:// URIs (returned by HA's ai_task integration)
-        # to an actual HTTP URL before downloading.
+        # Resolve media-source:// URIs (returned by HA's ai_task integration).
+        # If the source gives us a filesystem path, copy directly — this avoids
+        # the HTTP round-trip and the 1-hour authSig expiry entirely.
         if image_url.startswith("media-source://"):
             try:
+                import shutil
                 from homeassistant.components.media_source import async_resolve_media
                 resolved = await async_resolve_media(hass, image_url, None)
+                if getattr(resolved, "path", None):
+                    await hass.async_add_executor_job(shutil.copy2, str(resolved.path), dest)
+                    return f"/media/local/home_tasks/{filename}"
                 image_url = resolved.url
             except Exception as resolve_err:  # noqa: BLE001
                 _LOGGER.warning("Failed to resolve media source %s: %s", image_url, resolve_err)
@@ -1600,9 +1605,11 @@ async def ws_generate_task_image(hass: HomeAssistant, connection, msg):
 
         _LOGGER.debug("ai_task.generate_image result: %s", service_result)
         result_dict = service_result or {}
+        # Prefer media_source_id (resolves to a local file path we can copy
+        # directly) over url (which carries a 1-hour authSig that expires).
         image_url = (
-            result_dict.get("url")
-            or result_dict.get("media_source_id")
+            result_dict.get("media_source_id")
+            or result_dict.get("url")
             or (result_dict.get("image") or {}).get("url")
         )
         if not image_url:
