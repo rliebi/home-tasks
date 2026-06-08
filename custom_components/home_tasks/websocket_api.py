@@ -1407,7 +1407,7 @@ async def _save_image_to_public_media(hass, connection, image_url: str, filename
 
     Handles HA-internal paths (auth-required), external https:// URLs (may expire),
     and media-source:// URIs (only renderable by native HA apps).
-    Returns a /media/local/home_tasks/<filename> URL accessible on all devices.
+    Returns a /local/home_tasks_images/<filename> URL accessible on all devices.
     Falls back to the original URL on any error.
     """
     import os
@@ -1416,13 +1416,15 @@ async def _save_image_to_public_media(hass, connection, image_url: str, filename
     if not image_url:
         return image_url
 
-    # Already saved to our local directory — nothing to do.
+    # Already saved to our public www directory — nothing to do.
     # Strip any ?v= query param before checking so versioned URLs don't slip through.
-    if image_url.split("?")[0].startswith("/media/local/home_tasks/"):
+    if image_url.split("?")[0].startswith("/local/home_tasks_images/"):
         return image_url
 
     try:
-        media_dir = hass.config.path("media", "home_tasks")
+        # Save to config/www/home_tasks_images/ — served at /local/home_tasks_images/
+        # without authentication, so the card can display images as plain <img> tags.
+        media_dir = hass.config.path("www", "home_tasks_images")
         await hass.async_add_executor_job(os.makedirs, media_dir, 0o755, True)
         dest = os.path.join(media_dir, filename)
 
@@ -1438,7 +1440,7 @@ async def _save_image_to_public_media(hass, connection, image_url: str, filename
                 resolved = await async_resolve_media(hass, image_url, None)
                 if getattr(resolved, "path", None):
                     await hass.async_add_executor_job(shutil.copy2, str(resolved.path), dest)
-                    return f"/media/local/home_tasks/{filename}"
+                    return f"/local/home_tasks_images/{filename}"
                 image_url = resolved.url
             except Exception as resolve_err:  # noqa: BLE001
                 _LOGGER.warning("Failed to resolve media source %s: %s", image_url, resolve_err)
@@ -1509,7 +1511,7 @@ async def _save_image_to_public_media(hass, connection, image_url: str, filename
                 fh.write(image_data)
 
         await hass.async_add_executor_job(_write)
-        return f"/media/local/home_tasks/{filename}"
+        return f"/local/home_tasks_images/{filename}"
 
     except Exception as exc:  # noqa: BLE001
         _LOGGER.warning("Failed to save image to public media dir: %s", exc)
@@ -1617,7 +1619,7 @@ async def ws_generate_task_image(hass: HomeAssistant, connection, msg):
                 f"ai_task.generate_image returned no image URL. Full result: {result_dict}"
             )
 
-        # Convert auth-required internal URLs to public /media/local/ URLs so
+        # Convert auth-required internal URLs to public /local/ URLs so
         # the Lovelace card can display them without auth headers.
         image_filename = f"{title_hash}.png"
         image_url = await _save_image_to_public_media(hass, connection, image_url, image_filename)
@@ -1625,7 +1627,7 @@ async def ws_generate_task_image(hass: HomeAssistant, connection, msg):
         # Append a cache-busting timestamp so browsers/apps that cache by URL
         # (including the Android HA app which cannot be hard-refreshed) always
         # fetch the new image after regeneration.
-        if image_url.startswith("/media/local/home_tasks/"):
+        if image_url.startswith("/local/home_tasks_images/"):
             image_url = f"{image_url}?v={int(time.time())}"
 
         # ------------------------------------------------------------------
