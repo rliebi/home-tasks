@@ -36,6 +36,25 @@ async def test_add_task_records_history(hass: HomeAssistant, store) -> None:
     assert any(h["action"] == "created" for h in task["history"])
 
 
+async def test_add_task_with_assigned_person(hass: HomeAssistant, store) -> None:
+    """assigned_person passed to async_add_task is stored on the task."""
+    task = await store.async_add_task("Buy milk", assigned_person="person.alice")
+    assert task["assigned_person"] == "person.alice"
+
+
+async def test_add_task_assigned_person_defaults_to_none(hass: HomeAssistant, store) -> None:
+    """Without assigned_person the field defaults to None."""
+    task = await store.async_add_task("Buy milk")
+    assert task["assigned_person"] is None
+
+
+async def test_add_task_invalid_assigned_person_rejected(hass: HomeAssistant, store) -> None:
+    """Non-string assigned_person values raise ValueError."""
+    import pytest
+    with pytest.raises(ValueError):
+        await store.async_add_task("Buy milk", assigned_person=123)  # type: ignore[arg-type]
+
+
 async def test_title_empty_rejected(hass: HomeAssistant, store) -> None:
     """Empty (or whitespace-only) titles raise ValueError."""
     with pytest.raises(ValueError, match="must not be empty"):
@@ -840,6 +859,50 @@ async def test_new_task_has_new_recurrence_fields(hass: HomeAssistant, store) ->
     assert task["recurrence_day_of_month"] is None
     assert task["recurrence_nth_week"] is None
     assert task["recurrence_anniversary"] is None
+
+
+async def test_new_task_has_image_url_field(hass: HomeAssistant, store) -> None:
+    """A freshly created task has image_url defaulted to None."""
+    task = await store.async_add_task("Task with image field")
+    assert "image_url" in task
+    assert task["image_url"] is None
+
+
+async def test_image_url_is_updatable(hass: HomeAssistant, store) -> None:
+    """image_url can be updated on an existing task."""
+    task = await store.async_add_task("Task for image")
+    updated = await store.async_update_task(task["id"], image_url="/local/home_tasks_images/abc.png")
+    assert updated["image_url"] == "/local/home_tasks_images/abc.png"
+
+    # Can also clear it
+    cleared = await store.async_update_task(task["id"], image_url=None)
+    assert cleared["image_url"] is None
+
+
+async def test_image_url_migration(hass: HomeAssistant, tmp_path) -> None:
+    """Tasks loaded from storage without image_url get it backfilled to None."""
+    from custom_components.home_tasks.store import HomeTasksStore
+
+    s = HomeTasksStore(hass, "test_img_migration")
+    s._data = {
+        "tasks": [
+            {
+                "id": "t-img",
+                "title": "Old task",
+                "completed": False,
+                "sort_order": 0,
+                "sub_items": [],
+                "recurrence_enabled": False,
+                "recurrence_type": "interval",
+                "external_id": None,
+                "sync_source": None,
+            }
+        ]
+    }
+    s._backfill_recurrence_fields()
+    s._migrate_v1_to_v2()
+    t = s._data["tasks"][0]
+    assert t.get("image_url") is None
 
 
 async def test_legacy_weekdays_mode_normalised_on_load(hass: HomeAssistant, tmp_path) -> None:

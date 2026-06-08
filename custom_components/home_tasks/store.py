@@ -396,6 +396,7 @@ class HomeTasksStore:
             task.setdefault("assigned_person", None)
             task.setdefault("tags", [])
             task.setdefault("history", [])
+            task.setdefault("image_url", None)
 
     async def _async_save(self) -> None:
         """Save data to disk."""
@@ -408,9 +409,11 @@ class HomeTasksStore:
         """Return all tasks sorted by order."""
         return sorted(self._data["tasks"], key=lambda t: t["sort_order"])
 
-    async def async_add_task(self, title: str, actor: str | None = None) -> dict:
+    async def async_add_task(self, title: str, actor: str | None = None, assigned_person: str | None = None) -> dict:
         """Add a task."""
         title = validate_text(title, MAX_TITLE_LENGTH, "Task title")
+        if assigned_person is not None:
+            assigned_person = validate_assigned_person(assigned_person)
         if len(self._data["tasks"]) >= MAX_TASKS_PER_LIST:
             raise ValueError(f"Maximum number of tasks ({MAX_TASKS_PER_LIST}) reached")
         max_order = max((t["sort_order"] for t in self._data["tasks"]), default=-1)
@@ -444,8 +447,9 @@ class HomeTasksStore:
             "recurrence_nth_week": None,
             "recurrence_anniversary": None,
             "completed_at": None,
-            "assigned_person": None,
+            "assigned_person": assigned_person,
             "tags": [],
+            "image_url": None,
             "history": [created_entry],
             "external_id": None,
             "sync_source": None,
@@ -472,7 +476,7 @@ class HomeTasksStore:
         "recurrence_max_count", "recurrence_remaining_count",
         "recurrence_month_pattern", "recurrence_day_of_month",
         "recurrence_nth_week", "recurrence_anniversary",
-        "assigned_person", "tags", "section_id",
+        "assigned_person", "tags", "section_id", "image_url",
     )
 
     async def async_update_task(self, task_id: str, actor: str | None = None, **kwargs) -> dict:
